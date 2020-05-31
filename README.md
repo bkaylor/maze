@@ -1,0 +1,2 @@
+## Maze
+Generate some mazes.
