@@ -10,6 +10,7 @@
 #include "arena.h"
 #include "draw.h"
 #include "button.h"
+#include "queue.h"
 
 typedef struct {
     int x;
@@ -19,17 +20,27 @@ typedef struct {
 typedef struct {
     int x;
     int y;
+    int id;
 
     bool visited;
     bool north_wall, east_wall, south_wall, west_wall;
 
+    void *came_from; // Compiler complains if this is a struct Cell *.
     bool on_solution_path;
     bool checked;
 } Cell;
 
 typedef struct {
+    Cell *start;
+    Cell *end;
+    bool solved;
+} Solution_Info;
+
+typedef struct {
     int rows;
     int columns;
+
+    Solution_Info solution_info;
 
     SDL_Rect rect;
 
@@ -110,6 +121,7 @@ void render(SDL_Renderer *renderer, State state)
                                    g.rect.y + (c.y+1)*side_length);
             }
 
+            /*
             if (c.on_solution_path) {
                 SDL_Rect r;
                 r.x = g.rect.x + c.x*side_length + 2;
@@ -121,6 +133,25 @@ void render(SDL_Renderer *renderer, State state)
                 SDL_RenderFillRect(renderer, &r);
                 SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
             }
+            */
+        }
+    }
+
+    if (g.solution_info.solved)
+    {
+        SDL_SetRenderDrawColor(renderer, 0, 0, 255, 255);
+
+        Cell *at = g.solution_info.end;
+        while (at->id != g.solution_info.start->id)
+        {
+            Cell *came_from = at->came_from;
+            SDL_RenderDrawLine(renderer, 
+                               g.rect.x + ((at->x + 0.5f)*side_length),
+                               g.rect.y + ((at->y + 0.5f)*side_length),
+                               g.rect.x + ((came_from->x + 0.5f)*side_length),
+                               g.rect.y + ((came_from->y + 0.5f)*side_length));
+
+            at = came_from;
         }
     }
 
@@ -176,9 +207,64 @@ void reset_solve_data(Grid *g)
     }
 }
 
-// TODO(bkaylor): Guess you gotta make a queue for this.
-bool breadth(Grid *g, Cell *c)
+bool breadth(Grid *g, Cell *start, Cell *end)
 {
+    g->solution_info.start = start;
+    g->solution_info.end = end;
+
+    Queue q;
+    queue_init(&q, g->rows*g->columns);
+
+    queue_enqueue(&q, start->id);
+
+    while (q.item_count > 0)
+    {
+        int id = queue_dequeue(&q);
+
+        Cell *c = &g->cells[id];
+
+        Cell *n = get_north(g, c);
+        Cell *e = get_east(g, c);
+        Cell *s = get_south(g, c);
+        Cell *w = get_west(g, c);
+
+        if (n != NULL && !c->north_wall && !n->checked) 
+        {
+            queue_enqueue(&q, n->id);
+            n->checked = true;
+            n->came_from = c;
+        }
+
+        if (e != NULL && !c->east_wall && !e->checked) 
+        {
+            queue_enqueue(&q, e->id);
+            e->checked = true;
+            e->came_from = c;
+        }
+
+        if (s != NULL && !c->south_wall && !s->checked) 
+        {
+            queue_enqueue(&q, s->id);
+            s->checked = true;
+            s->came_from = c;
+        }
+
+        if (w != NULL && !c->west_wall && !w->checked) 
+        {
+            queue_enqueue(&q, w->id);
+            w->checked = true;
+            w->came_from = c;
+        }
+    }
+
+    Cell *c = end;
+    while (true)
+    {
+        c->on_solution_path = true;
+        if (c->id == start->id) return true; 
+        c = c->came_from;
+    }
+
     return false;
 }
 
@@ -201,6 +287,7 @@ bool depth(Grid *g, Cell *c)
     {
         if (depth(g, n))
         {
+            n->came_from = c;
             c->on_solution_path = true;
             return true;
         }
@@ -210,6 +297,7 @@ bool depth(Grid *g, Cell *c)
     {
         if (depth(g, e))
         {
+            e->came_from = c;
             c->on_solution_path = true;
             return true;
         }
@@ -219,6 +307,7 @@ bool depth(Grid *g, Cell *c)
     {
         if (depth(g, s))
         {
+            s->came_from = c;
             c->on_solution_path = true;
             return true;
         }
@@ -228,6 +317,7 @@ bool depth(Grid *g, Cell *c)
     {
         if (depth(g, w))
         {
+            w->came_from = c;
             c->on_solution_path = true;
             return true;
         }
@@ -326,8 +416,9 @@ void generate_maze(Grid *g)
             c.west_wall = true;
             c.on_solution_path = false;
             c.checked = false;
+            c.id = (j*g->columns) + i;
 
-            g->cells[(j*g->columns) + i] = c;
+            g->cells[c.id] = c;
         }
     }
 
@@ -397,13 +488,17 @@ void handle_buttons(State *state)
         if (do_button(g, "depth"))
         {
             reset_solve_data(&state->grid);
-            depth(&state->grid, &state->grid.cells[0]);
+
+            Solution_Info *si = &state->grid.solution_info;
+            si->solved = depth(&state->grid, &state->grid.cells[0]);
         }
 
         if (do_button(g, "breadth"))
         {
             reset_solve_data(&state->grid);
-            breadth(&state->grid, &state->grid.cells[0]);
+
+            Solution_Info *si = &state->grid.solution_info;
+            si->solved = breadth(&state->grid, si->start, si->end);
         }
 
         if (do_button(g, "reset"))
@@ -441,6 +536,10 @@ void update(State *state)
         g->rect = r;
 
         generate_maze(g);
+
+        g->solution_info.start = &g->cells[0]; 
+        g->solution_info.end = &g->cells[g->columns*g->rows-1]; 
+        g->solution_info.solved = false;
 
         state->reset = false;
     }
