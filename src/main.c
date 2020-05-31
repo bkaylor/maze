@@ -257,6 +257,8 @@ bool breadth(Grid *g, Cell *start, Cell *end)
         }
     }
 
+    queue_free(&q);
+
     Cell *c = end;
     while (true)
     {
