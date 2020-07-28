@@ -645,8 +645,8 @@ int main(int argc, char *argv[])
     state.quit = false;
     state.reset = true;
     state.show_options = false;
-    state.rows = 20;
-    state.columns = 20;
+    state.rows = 100;
+    state.columns = 100;
     state.max_cells = 10000;
 
     gui_init(&state.gui, font);
